@@ -1,0 +1,21 @@
+- name: Install windows updates
+  hosts: all
+  gather_facts: false
+
+  tasks:
+  - name: Install all critical and security updates
+    win_updates:
+      category_names: '*'
+      # - CriticalUpdates
+      # - SecurityUpdates
+      # - UpdateRollups
+      skip_optional: no
+      log_path: c:\windows\logs\ansible_windows_update.log
+      state: installed
+    register: update_result
+
+  - debug: var=update_result
+
+  - name: reboot host if required
+    win_reboot:
+    when: update_result.reboot_required

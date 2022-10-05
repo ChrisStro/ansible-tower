@@ -1,0 +1,9 @@
+- name: Install chocolatey packages
+  hosts: all
+
+  tasks:
+    - name: Install Chocolatey Packages from public repository
+      win_chocolatey:
+        name: "{{ choco_packages_public }}"
+        state: latest
+      when: choco_packages_public is defined
