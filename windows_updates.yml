@@ -1,21 +1,98 @@
-- name: Install windows updates
+- name: Install updates for server updates
   hosts: all
-  gather_facts: false
+  gather_facts: true
 
   tasks:
-  - name: Install all critical and security updates
-    win_updates:
-      category_names: '*'
-      # - CriticalUpdates
-      # - SecurityUpdates
-      # - UpdateRollups
-      skip_optional: no
-      log_path: c:\windows\logs\ansible_windows_update.log
-      state: installed
-    register: update_result
+  # Windows
+  - name: Updating Windows server
+    block:
+      - name: Download needed Windows updates
+        win_updates:
+          category_names: '*'
+          # - CriticalUpdates
+          # - SecurityUpdates
+          # - UpdateRollups
+          skip_optional: no
+          log_path: c:\windows\logs\ansible_windows_update.log
+          state: installed
+        register: update_result
 
-  - debug: var=update_result
+      - name: Installed following updates
+        debug:
+          msg: "{{ update_result }}"
+        when: update_result.updates | length > 0
 
-  - name: reboot host if required
-    win_reboot:
-    when: update_result.reboot_required
+
+      - name: reboot before install any updates
+        win_reboot:
+        when: update_result.updates | length > 0
+
+      - name: Installing Windows updates
+        win_updates:
+          category_names: '*'
+          # - CriticalUpdates
+          # - SecurityUpdates
+          # - UpdateRollups
+          skip_optional: no
+          log_path: c:\windows\logs\ansible_windows_update.log
+          state: installed
+        register: update_result
+
+      - name: reboot windows server if required
+        win_reboot:
+        when: update_result.reboot_required
+
+    when: ansible_facts['os_family'] == "Windows"
+
+  # Debian
+  - name: updating debian based distros
+    block:
+      - name: running apt update
+        apt:
+          update-cache: yes
+
+      - name: Get list of pending upgrades
+        command: apt-get --simulate dist-upgrade
+        args:
+          warn: false # don't warn us about apt having its own plugin
+        register: apt_simulate
+
+      - name: Parse apt-get output to get list of changed packages
+        set_fact:
+          updates: '{{ apt_simulate.stdout_lines | select("match", "^Inst ") | list | sort }}'
+
+      - name: Show pending updates
+        debug:
+          var: updates
+        when: updates.0 is defined
+
+      - name: apt-get autoremove
+        command: apt-get -y autoremove
+        args:
+          warn: false
+        when: '"Inst linux-image-" in apt_simulate.stdout'
+
+      - name: Run apt-get dist-upgrade
+        apt:
+          upgrade: dist # upgrade all packages to latest version
+
+      - name: Reinstall packages if requested
+        command: "apt-get -y install --reinstall {{ item }}"
+        args:
+          warn: false
+        with_items:
+          - "{{ packages_to_reinstall }}"
+        when: packages_to_reinstall is defined
+
+      - name: Check if reboot needed
+        stat: path=/var/run/reboot-required
+        register: file_reboot_require
+
+      - name: Reboot node
+        reboot:
+        reboot_timeout: 1800
+        when: file_reboot_require is defined
+
+    when: ansible_facts['os_family'] == "Debian"
+    become: true
+    become_method: sudo
