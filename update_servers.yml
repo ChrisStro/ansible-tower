@@ -1,4 +1,4 @@
-- name: Install updates for server updates
+- name: Update Servers
   hosts: all
   gather_facts: true
 
