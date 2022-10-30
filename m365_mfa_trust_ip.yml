@@ -87,6 +87,7 @@
           - "Current    : {{ current_cidr_address }}"
           - "Configured : {{ configured_cidr_address }}"
         verbosity: 1
+      when: ansible_location != "none"
 
     - name: Create new trusted location for MFA
       ansible.builtin.uri:
