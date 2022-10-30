@@ -9,29 +9,41 @@ PERMISSIONS=(
 # Create app if not exists
 echo "Check if app with name $APPNAME already exists"
 APPID=$(az ad app list --display-name $APPNAME --query [].appId -o tsv)
-[ -z $APPID ] && az ad app create --display-name $APPNAME &&
-    APPID=$(az ad app list --display-name $APPNAME --query [].appId -o tsv) &&
-    az ad sp create --id $APPID ||
-echo "Found application with id $APPID"
+[ -z $APPID ] &&
+    APPID=$(az ad app create --display-name $APPNAME --query appId -o tsv) &&
+    az ad sp create --id $APPID -o yaml ||
+(echo "Found application with id $APPID. Script cancel here"; exit 1)
 
 # Get permission ids
 # 'az ad sp show --id $MSGRAPHAPPID --query "appRoles[*][value,id,allowedMemberTypes]" -o table' list all available approles/permissions
-echo "Look for needed permission ids"
+echo -e "\nLook for needed permission ids\n"
 PERMISSION_IDS=()
 for permission in ${PERMISSIONS[@]}
 do
     id=$(az ad sp show --id $MSGRAPHAPPID --query "appRoles[?value=='$permission'].id" -o tsv)
-    echo "Add id $id for $permission to list"
+    echo -e "Add id $id for $permission to list\n"
     PERMISSION_IDS+=($id)
 done
 
 # Apply permission ids to app
+echo "Application Name  : $APPNAME"
+echo -e "Application ID    : $APPID\n"
+
+INDEXOF=0
 for permission_id in ${PERMISSION_IDS[@]}
 do
-    az ad app permission add --id $APPID --api $MSGRAPHAPPID --api-permissions "$permission_id=Role" --only-show-errors
-    az ad app permission grant --id $APPID --api $MSGRAPHAPPID #--scope Policy.Read.All
+    echo "Add permission ${PERMISSIONS[$INDEXOF]} to $APPNAME"
+    az ad app permission add --id $APPID --api $MSGRAPHAPPID --api-permissions "$permission_id=Role" --only-show-errors -o yaml
+    echo ""
+    az ad app permission grant --id $APPID --api $MSGRAPHAPPID --scope ${PERMISSIONS[$INDEXOF]} -o yaml
+    echo ""
+    ((INDEXOF++))
 done
+
 echo "Grant applications permission through admin-consent (needed when used in application context)"
+echo "We will wait 30 seconds before continuing (MS Graph sometimes takes a little time)"
+sleep 30
+echo "run: 'az ad app permission admin-consent --id $APPID'"
 az ad app permission admin-consent --id $APPID
 
 # New secret for app

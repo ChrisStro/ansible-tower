@@ -5,7 +5,7 @@
     - name: Fail on pre-check
       ansible.builtin.fail:
         msg:
-          - "Missing environment variable -> tenant_name_id, app_id, app_secret run webscript in Azure CLI"
+          - "Missing variable -> tenant_name_id, app_id, app_secret are required. Run webscript in Azure CLI first"
           - "curl -sfL https://raw.githubusercontent.com/ChrisStro/ansible-tower/main/files/new_awx_sp_azure.sh | sh -"
       when: tenant_name_id is undefined or
             app_id is undefined or
