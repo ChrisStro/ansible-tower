@@ -5,79 +5,82 @@
   tasks:
   # Windows
   - name: Updating Windows server
+    when: ansible_facts['os_family'] == "Windows"
     block:
       - name: Download needed Windows updates
-        win_updates:
+        ansible.windows.win_updates:
           category_names: '*'
           # - CriticalUpdates
           # - SecurityUpdates
           # - UpdateRollups
-          skip_optional: no
+          skip_optional: false
           log_path: c:\windows\logs\ansible_windows_update.log
           state: installed
         register: update_result
 
       - name: Installed following updates
-        debug:
+        ansible.builtin.debug:
           msg: "{{ update_result }}"
         when: update_result.updates | length > 0
 
 
-      - name: reboot before install any updates
-        win_reboot:
+      - name: Reboot before install any updates
+        ansible.windows.win_reboot:
         when: update_result.updates | length > 0
 
       - name: Installing Windows updates
-        win_updates:
+        ansible.windows.win_updates:
           category_names: '*'
           # - CriticalUpdates
           # - SecurityUpdates
           # - UpdateRollups
-          skip_optional: no
+          skip_optional: false
           log_path: c:\windows\logs\ansible_windows_update.log
           state: installed
         register: update_result
 
-      - name: reboot windows server if required
-        win_reboot:
+      - name: Reboot windows server if required
+        ansible.windows.win_reboot:
         when: update_result.reboot_required
 
-    when: ansible_facts['os_family'] == "Windows"
-
   # Debian
-  - name: updating debian based distros
+  - name: Updating debian based distros
+    when: ansible_facts['os_family'] == "Debian"
+    become: true
+    become_method: sudo
     block:
-      - name: running apt update
-        apt:
-          update-cache: yes
+      - name: Running apt update
+        ansible.builtin.apt:
+          update-cache: true
 
       - name: Get list of pending upgrades
-        command: apt-get --simulate dist-upgrade
+        ansible.builtin.command: apt-get --simulate dist-upgrade
         args:
           warn: false # don't warn us about apt having its own plugin
+        changed_when: false
         register: apt_simulate
 
       - name: Parse apt-get output to get list of changed packages
-        set_fact:
+        ansible.builtin.set_fact:
           updates: '{{ apt_simulate.stdout_lines | select("match", "^Inst ") | list | sort }}'
 
       - name: Show pending updates
-        debug:
+        ansible.builtin.debug:
           var: updates
         when: updates.0 is defined
 
-      - name: apt-get autoremove
-        command: apt-get -y autoremove
+      - name: Apt-get autoremove
+        ansible.builtin.command: apt-get -y autoremove
         args:
           warn: false
         when: '"Inst linux-image-" in apt_simulate.stdout'
 
       - name: Run apt-get dist-upgrade
-        apt:
+        ansible.builtin.apt:
           upgrade: dist # upgrade all packages to latest version
 
       - name: Reinstall packages if requested
-        command: "apt-get -y install --reinstall {{ item }}"
+        ansible.builtin.command: "apt-get -y install --reinstall {{ item }}"
         args:
           warn: false
         with_items:
@@ -85,14 +88,11 @@
         when: packages_to_reinstall is defined
 
       - name: Check if reboot needed
-        stat: path=/var/run/reboot-required
+        ansible.builtin.stat:
+          path: /var/run/reboot-required
         register: file_reboot_require
 
       - name: Reboot node
-        reboot:
-        reboot_timeout: 1800
+        ansible.builtin.reboot:
+          reboot_timeout: 1800
         when: file_reboot_require is defined
-
-    when: ansible_facts['os_family'] == "Debian"
-    become: true
-    become_method: sudo

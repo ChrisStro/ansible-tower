@@ -1,0 +1,112 @@
+- name: Update current public ip with Microsoft365 MFA trusted location
+  hosts: localhost
+
+  tasks:
+    - name: Fail on pre-check
+      ansible.builtin.fail:
+        msg:
+          - "Missing environment variable -> tenant_name_id, app_id, app_secret run webscript in Azure CLI"
+          - "curl -sfL https://raw.githubusercontent.com/ChrisStro/ansible-tower/main/files/new_awx_sp_azure.sh | sh -"
+      when: tenant_name_id is undefined or
+            app_id is undefined or
+            app_secret is undefined
+
+    - name: Set variable 'location_name' to 'ansible_pub_ip' if not set
+      ansible.builtin.set_fact:
+        location_name: "ansible_pub_ip"
+      when: location_name is undefined
+
+    - name: Get public ip adress of myself
+      when: public_dns_name is undefined
+      block:
+        - name: Get current public ip of myself
+          ansible.builtin.uri:
+            url: https://api.ipify.org?format=json
+          no_log: true
+          register: out_pub_ip
+
+        - name: Set current cidr address based on my pip
+          ansible.builtin.set_fact:
+            current_cidr_address: "{{ out_pub_ip.json.ip }}/32"
+
+    - name: Get public ip via dns lookup
+      when: public_dns_name is defined
+      block:
+        - name: Lookup {{ public_dns_name }}
+          ansible.builtin.debug:
+            msg: "{{ lookup('dig', '{{ public_dns_name }}') }}"
+          register: out_lookup
+
+        - name: Set current cidr address based on dns lookup
+          ansible.builtin.set_fact:
+            current_cidr_address: "{{ out_lookup.msg }}/32"
+
+    - name: Get auth token for MS graph
+      ansible.builtin.uri:
+        url: "https://login.microsoftonline.com/{{ tenant_name_id }}/oauth2/v2.0/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          client_id: "{{ app_id }}"
+          client_secret: "{{ app_secret }}"
+          scope: "https://graph.microsoft.com/.default"
+          grant_type: "client_credentials"
+      no_log: true
+      register: out_token
+
+    - name: Get current trusted location with name {{ location_name }}
+      ansible.builtin.uri:
+        url: "https://graph.microsoft.com/beta/conditionalAccess/namedLocations?$filter=displayName%20eq%20'{{ location_name }}'"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ out_token.json.access_token }}"
+      no_log: false
+      register: out_trusted_locations
+
+    - name: Set fact for trusted location configured by ansible
+      ansible.builtin.set_fact:
+        ansible_location: "{{ out_trusted_locations.json.value[0] | default('none') }}"
+        request_url: https://graph.microsoft.com/beta/conditionalAccess/namedLocations
+        request_method: "POST"
+
+    - name: Output current configuration of location {{ location_name }}
+      ansible.builtin.debug:
+        var: ansible_location
+        verbosity: 1
+
+    - name: Set/Override facts for cidr of configured {{ location_name }}
+      ansible.builtin.set_fact:
+        configured_cidr_address: "{{ ansible_location.ipRanges[0].cidrAddress }}"
+        request_url: "{{ request_url }}/{{ ansible_location.id }}"
+        request_method: "PUT"
+      when: ansible_location != "none"
+
+    - name: Output cidr addresses
+      ansible.builtin.debug:
+        msg:
+          - "Current    : {{ current_cidr_address }}"
+          - "Configured : {{ configured_cidr_address }}"
+        verbosity: 1
+
+    - name: Create new trusted location for MFA
+      ansible.builtin.uri:
+        url: "{{ request_url }}"
+        method: "{{ request_method }}"
+        headers:
+          Authorization: "Bearer {{ out_token.json.access_token }}"
+        body_format: json
+        body:
+          "@odata.type": "#microsoft.graph.ipNamedLocation"
+          displayName: "{{ location_name }}"
+          isTrusted: true
+          ipRanges:
+            - cidrAddress: "{{ current_cidr_address }}"
+        status_code:
+          - 200
+          - 201 # on POST
+          - 204 # on PUT
+      no_log: true
+      changed_when: true
+      register: out_update
+      when: ansible_location == "none" or
+            configured_cidr_address != current_cidr_address
