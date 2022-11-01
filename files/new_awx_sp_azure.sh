@@ -48,4 +48,18 @@ az ad app permission admin-consent --id $APPID
 
 # New secret for app
 echo "Use following variables for playbook, don't store them anywhere else! :" && echo ""
-az ad app credential reset --id $APPID --query "{app_id:appId,app_secret:password,tenant_name_id:tenant}" --only-show-errors -o yaml
+az ad app credential reset --id $APPID --query "{tenant_name_id:tenant,app_id:appId,app_secret:password}" --only-show-errors -o yaml
+
+echo -e "--------------------------AWX/Tower Tip--------------------------
+Does NOT work in AWX/Tower template:
+app_secret: !vault |
+          \$ANSIBLE_VAULT;1.1;AES256
+          386463383536613....
+
+
+Store encrypted variables in an INVENTORY using the following syntax:
+app_secret:
+  __ansible_vault: |
+          \$ANSIBLE_VAULT;1.1;AES256
+          386463383536613.....
+"
